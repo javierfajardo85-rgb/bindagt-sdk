@@ -25,7 +25,12 @@ jobs:
       - run: npm run build
       - run: npm test
       - name: Set version from tag
-        run: npm version --no-git-tag-version "${GITHUB_REF_NAME#v}"
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$CURRENT_VERSION" ]; then
+            npm version --no-git-tag-version "$TAG_VERSION"
+          fi
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
