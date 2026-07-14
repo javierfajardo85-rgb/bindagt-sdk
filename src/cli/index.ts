@@ -10,7 +10,6 @@ import { cmdRenew } from "./commands/renew.js";
 import { cmdReactivate } from "./commands/reactivate.js";
 import { cmdBuySlots } from "./commands/buy-slots.js";
 import { cmdSlotsList } from "./commands/slots-list.js";
-import { cmdFastLane } from "./commands/fast-lane.js";
 import { cmdCancelTransfer } from "./commands/cancel-transfer.js";
 import { cmdKeyGenerate, cmdKeyExport, cmdKeyImport } from "./commands/key.js";
 import { cmdLogin } from "./commands/login.js";
@@ -68,10 +67,6 @@ async function main(): Promise<void> {
       } else {
         printUnknown(`slots ${sub ?? ""}`);
       }
-      break;
-
-    case "fast-lane":
-      await cmdFastLane([sub ?? "", ...rest], isCI);
       break;
 
     case "cancel-transfer":
@@ -145,9 +140,9 @@ Identity & key management
   key import <file>           Import encrypted controlKey
 
 Root management
-  register <agt-id>           Register a new root + agent
-  renew <domain>              Renew a root domain
-  reactivate <domain>         Reactivate a suspended root ($10)
+  register <agt-id> [--fast-lane]   Register a new root + agent (--fast-lane: priority queue)
+  renew <domain>               Renew a root domain
+  reactivate <domain>          Reactivate a suspended root ($10)
 
 Agent management
   activate <agt-id>           Activate a slot (--private/--public, default: --private)
@@ -156,10 +151,8 @@ Agent management
   status --watch <agt-id>     Poll until the agent is active
   slots list                  List unactivated slots
 
-Payments & fast lane
-  buy-slots <n>               Purchase a pack of agent slots
-  fast-lane <agt-id>          Activate immediately (gas×1.5, 10 min window)
-  fast-lane --register <d>    Fast-lane a new root registration
+Payments
+  buy-slots <n>                Purchase a pack of agent slots
 
 Recovery
   cancel-transfer <domain>    Veto an in-progress transfer (Time-Lock)

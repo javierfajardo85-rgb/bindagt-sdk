@@ -2,6 +2,7 @@ import { shouldUseJson, printResult, printError } from "../output.js";
 import { parseAgentId } from "../../normalize.js";
 import { EXIT } from "../exit.js";
 import { BindAgtError } from "../../errors.js";
+import { loadControlKey } from "./key.js";
 import process from "node:process";
 
 export async function cmdRegister(args: string[], isCI: boolean): Promise<void> {
@@ -31,6 +32,10 @@ export async function cmdRegister(args: string[], isCI: boolean): Promise<void> 
     process.exit(EXIT.AUTH_REQUIRED);
   }
 
+  // The contract requires a controlKey (public key) + keyType at registration
+  // time — pulled from the local key file created by `bindagt key generate`.
+  const { controlKey, keyType } = await loadControlKey(isCI, isJson);
+
   // In interactive mode, collect email if not provided
   let email = args.find((_, i) => args[i - 1] === "--email") ?? process.env["BINDAGT_EMAIL"];
   if (!email && !isCI) {
@@ -51,7 +56,6 @@ export async function cmdRegister(args: string[], isCI: boolean): Promise<void> 
 
   if (!isJson) {
     console.log(`\n→ Registering agt://${domain}/${path}`);
-    console.log("→ Opening browser to complete payment...");
   }
 
   try {
@@ -65,6 +69,8 @@ export async function cmdRegister(args: string[], isCI: boolean): Promise<void> 
         domain,
         agentPath: path,
         email,
+        controlKey,
+        keyType,
         fastLane,
       }),
     });
@@ -88,13 +94,21 @@ export async function cmdRegister(args: string[], isCI: boolean): Promise<void> 
     if (isJson) {
       printResult(body, true);
     } else {
+      const challengeTxt = body["challengeTxt"] as { name?: string; value?: string } | undefined;
+      if (challengeTxt?.name && challengeTxt?.value) {
+        console.log(`\n  Publish this DNS TXT record on ${domain}:`);
+        console.log(`    ${challengeTxt.name}  TXT  ${challengeTxt.value}`);
+        console.log("  Keep it published indefinitely — BindAgt re-checks it daily.");
+      }
+
       const checkoutUrl = body["checkoutUrl"];
       if (typeof checkoutUrl === "string") {
+        console.log(`\n  Complete payment to continue: ${checkoutUrl}`);
         const { default: open } = await import("open").catch(() => ({ default: null })) as { default: ((url: string) => Promise<void>) | null };
         if (open) await open(checkoutUrl);
-        else console.log(`\n  Open this URL to complete payment:\n  ${checkoutUrl}\n`);
       }
-      console.log("→ Waiting for payment confirmation...");
+
+      console.log(`\n→ Check progress: bindagt status agt://${domain}/${path} --watch\n`);
     }
   } catch (err) {
     printError(`Network error: ${String(err)}`, isJson);

@@ -17,6 +17,12 @@ vi.mock("../../verifyOnChain.js", () => ({ verifyOnChain: mockVerifyOnChain }));
 const { mockResolveTxt } = vi.hoisted(() => ({ mockResolveTxt: vi.fn() }));
 vi.mock("node:dns/promises", () => ({ resolveTxt: mockResolveTxt }));
 
+const { mockLoadControlKey } = vi.hoisted(() => ({ mockLoadControlKey: vi.fn() }));
+vi.mock("./key.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./key.js")>();
+  return { ...actual, loadControlKey: mockLoadControlKey };
+});
+
 // ── Imports (after mocks are hoisted) ─────────────────────────────────────
 
 import { shouldUseJson, printResult, printError } from "../output.js";
@@ -31,7 +37,6 @@ import { cmdRenew } from "./renew.js";
 import { cmdReactivate } from "./reactivate.js";
 import { cmdBuySlots } from "./buy-slots.js";
 import { cmdSlotsList } from "./slots-list.js";
-import { cmdFastLane } from "./fast-lane.js";
 import { cmdCancelTransfer } from "./cancel-transfer.js";
 import { cmdKeyGenerate, cmdKeyExport, cmdKeyImport } from "./key.js";
 import { cmdLogin } from "./login.js";
@@ -58,6 +63,9 @@ beforeEach(() => {
 
   mockFetch = vi.fn();
   vi.stubGlobal("fetch", mockFetch);
+
+  mockLoadControlKey.mockReset();
+  mockLoadControlKey.mockResolvedValue({ controlKey: "0x02" + "ab".repeat(32), keyType: 0 });
 
   delete process.env["BINDAGT_API_KEY"];
   delete process.env["BINDAGT_API_URL"];
@@ -282,6 +290,28 @@ describe("cmdRegister — T-518 to T-521", () => {
     ).rejects.toBeTruthy();
     expect(exitSpy.mock.calls[0]?.[0]).toBe(EXIT.PAYMENT_REQUIRED);
   });
+
+  it("T-521b: request body includes controlKey + keyType from loadControlKey", async () => {
+    process.env["BINDAGT_API_KEY"] = "agt_live_key";
+    mockLoadControlKey.mockResolvedValue({ controlKey: "0x03" + "cd".repeat(32), keyType: 0 });
+    mockFetch.mockResolvedValue(fetchOk({ domainHash: "0xabc" }, 201));
+    await cmdRegister(["agt://example.com/ai", "--email", "user@example.com", "--json"], true);
+    const call = mockFetch.mock.calls[0];
+    const reqBody = JSON.parse((call?.[1] as RequestInit)?.body as string);
+    expect(reqBody.controlKey).toBe("0x03" + "cd".repeat(32));
+    expect(reqBody.keyType).toBe(0);
+  });
+
+  it("T-521c: loadControlKey exits AUTH_REQUIRED (e.g. no key file) → register never calls fetch", async () => {
+    mockLoadControlKey.mockImplementation(() => {
+      throw Object.assign(new Error(`exit:${EXIT.AUTH_REQUIRED}`), { exitCode: EXIT.AUTH_REQUIRED });
+    });
+    process.env["BINDAGT_API_KEY"] = "agt_live_key";
+    await expect(
+      cmdRegister(["agt://example.com/ai", "--email", "user@example.com", "--json"], true)
+    ).rejects.toMatchObject({ exitCode: EXIT.AUTH_REQUIRED });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
 
 // ── T-522 to T-524: activate command ─────────────────────────────────────
@@ -367,25 +397,6 @@ describe("cmdBuySlots — T-529 to T-531", () => {
 describe("cmdSlotsList — T-532", () => {
   it("T-532: no API key → exit(AUTH_REQUIRED)", async () => {
     await expect(cmdSlotsList(["--json"], true)).rejects.toMatchObject({ exitCode: EXIT.AUTH_REQUIRED });
-  });
-});
-
-// ── T-533 to T-534: fast-lane command ─────────────────────────────────────
-
-describe("cmdFastLane — T-533 to T-534", () => {
-  it("T-533: no API key → exit(AUTH_REQUIRED)", async () => {
-    await expect(cmdFastLane(["agt://example.com/ai", "--json"], true))
-      .rejects.toMatchObject({ exitCode: EXIT.AUTH_REQUIRED });
-  });
-
-  it("T-534: --register mode sends {mode:registerRoot} in body", async () => {
-    process.env["BINDAGT_API_KEY"] = "agt_live_key";
-    mockFetch.mockResolvedValue(fetchOk({ status: "queued" }, 202));
-    await cmdFastLane(["--register", "example.com", "--json"], true);
-    const call = mockFetch.mock.calls[0];
-    const reqBody = JSON.parse((call?.[1] as RequestInit)?.body as string);
-    expect(reqBody.mode).toBe("registerRoot");
-    expect(reqBody.domain).toBe("example.com");
   });
 });
 

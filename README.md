@@ -53,14 +53,22 @@ bindagt status acme.com
 
 Run `bindagt doctor` for a full list of commands and their status.
 
-**Known issue (tracked, not yet fixed):** `bindagt register` and `bindagt fast-lane` are incomplete — `register` doesn't yet wire the local `controlKey` (from `bindagt key generate`) into the registration request, and `fast-lane` calls an endpoint that doesn't exist as a standalone route (fast-lane is a flag on registration, not a separate call). Both will error out today rather than silently doing the wrong thing. Registration currently works reliably through the [dashboard](https://dashboard.bindagt.com/dashboard/domains/register) instead. Verification (`verify`, `verifyOnChain`, `verifyLocal`, `status`) is solid and covered by tests.
+To register a domain from the CLI:
+
+```bash
+bindagt key generate            # creates and encrypts a local controlKey
+bindagt register agt://acme.com/support-bot
+bindagt status --watch acme.com # poll until DNS verification + L1 anchoring complete
+```
+
+`bindagt register` derives your `controlKey` from the keyfile created by `bindagt key generate` (secp256k1 by default; pass `--p256` to `key generate` for a P-256 key). Pass `--fast-lane` to `register` for priority processing (paid by Bindagt, not you — just a queue priority flag). Registration also works through the [dashboard](https://dashboard.bindagt.com/dashboard/domains/register) if you'd rather not manage a local key.
 
 ## Development
 
 ```bash
-pnpm install
-pnpm build
-pnpm test
+npm install
+npm run build
+npm test
 ```
 
 ## License
