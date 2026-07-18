@@ -71,6 +71,17 @@ npm run build
 npm test
 ```
 
+## Changelog
+
+### 0.2.0
+
+- **Fix:** `verify()` now parses the canonical AGT-9303 document (`{identity, verification}` blocks, per `AGT-9303_Standard.md` §4.2-4.3), matching what `api.bindagt.com/v1/verify/{hash}` actually serves. 0.1.0's parser expected a flat shape that never matched the real API — public agents came back mislabelled `agentType: "private"` with `anchoredAt`/`issuer` always missing. `VerifyResult`'s shape is unchanged; only the wire parsing was fixed.
+- `domain_status` gains the `transfer_expired` value (AGT-9303 v1.4.2 §5 — a transfer Time-Lock that expired unresolved). Treated as invalid, like `suspended`/`expired`/`transferred`.
+
+### 0.1.0
+
+Initial public release: `verify` / `verifyOnChain` / `verifyLocal` + CLI.
+
 ## License
 
 MIT

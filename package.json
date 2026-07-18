@@ -1,6 +1,6 @@
 {
   "name": "bindagt",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SDK and CLI for the AGT-9303 agent identity protocol",
   "homepage": "https://bindagt.com",
   "repository": {

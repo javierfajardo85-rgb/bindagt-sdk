@@ -124,24 +124,34 @@ export async function verify(
     throw mapHttpError(res.status, body);
   }
 
-  // API returns the AGT-9303 document directly (no wrapper).
+  // API returns the AGT-9303 document directly (no wrapper): {identity,
+  // verification} per AGT-9303_Standard.md §4.2-4.3. 0.1.0 parsed a flat
+  // shape that only ever matched @bindagt/mock-server's old (also wrong)
+  // format — see Guia_Ejecucion_Fases_AGT9303_Plugin.md Parte 3 for the
+  // full history of this bug.
   // Guard: body may be null if the response wasn't valid JSON (JSON parse catch above).
   const doc = (body !== null && typeof body === "object" ? body : {}) as Record<string, unknown>;
-  const agentIdStr = String(doc["agent_id"] ?? agentId);
-  const domainStr = String(doc["domain"] ?? domain);
-  const domainStatus = mapDomainStatus(String(doc["domain_status"] ?? "expired"));
+  const identity = (doc["identity"] as Record<string, unknown> | undefined) ?? {};
+  const verification = (doc["verification"] as Record<string, unknown> | undefined) ?? {};
+
+  const agentIdStr = String(identity["agent_id"] ?? agentId);
+  const domainStr = String(identity["domain"] ?? domain);
+  const domainStatus = mapDomainStatus(String(verification["domain_status"] ?? "expired"));
   const agentType =
-    doc["agent_type"] === "public" || doc["agent_type"] === "private"
-      ? (doc["agent_type"] as "public" | "private")
+    identity["agent_type"] === "public" || identity["agent_type"] === "private"
+      ? (identity["agent_type"] as "public" | "private")
       : "private";
 
-  const verification = doc["verification"] as Record<string, unknown> | undefined;
+  // identity.registered_at is unix seconds on the wire (§4.2); VerifyResult.
+  // anchoredAt stays an ISO-8601 string — its own public contract is
+  // unchanged in 0.2.0, only how it's parsed off the response.
+  const registeredAt = identity["registered_at"];
   const anchoredAt =
-    verification?.["anchored_at"] != null
-      ? String(verification["anchored_at"])
+    typeof registeredAt === "number"
+      ? new Date(registeredAt * 1_000).toISOString()
       : undefined;
   const issuer =
-    verification?.["issuer_address"] != null
+    verification["issuer_address"] != null
       ? String(verification["issuer_address"])
       : undefined;
 

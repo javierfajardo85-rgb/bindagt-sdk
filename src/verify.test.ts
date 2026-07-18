@@ -7,12 +7,19 @@ import { normalizeDomain } from "./normalize.js";
 // ── Minimal stub API server ───────────────────────────────────────────────────
 // Simulates /verify/:hash (verify() calls apiUrl + "/verify/" + hash, no /v1/ prefix)
 
+// AGT-9303_Standard.md §4.2-4.3 shape — matches what apps/api/src/routes/
+// verify.ts and @bindagt/mock-server now both emit.
 type StubDoc = {
-  agent_id?: string;
-  agent_type?: string;
-  domain?: string;
-  domain_status: string;
-  verification?: Record<string, unknown>;
+  identity?: {
+    agent_id?: string;
+    agent_type?: string;
+    domain?: string;
+    registered_at?: number;
+  };
+  verification?: {
+    domain_status?: string;
+    issuer_address?: string;
+  };
 };
 
 const stubs = new Map<string, StubDoc>();
@@ -85,10 +92,8 @@ function registerStubWithCorr(domain: string, path: string, doc: StubDoc, corrId
 describe("verify()", () => {
   it("T-400: returns valid:true for active agent", async () => {
     const agentId = registerStub("example.com", "my-agent", {
-      agent_id: "agt://example.com/my-agent",
-      agent_type: "public",
-      domain: "example.com",
-      domain_status: "active",
+      identity: { agent_id: "agt://example.com/my-agent", agent_type: "public", domain: "example.com" },
+      verification: { domain_status: "active" },
     });
     const result = await verify(agentId, { apiUrl: baseUrl });
     expect(result.valid).toBe(true);
@@ -98,10 +103,8 @@ describe("verify()", () => {
   // T-401: transfer_pending → valid:true
   it("T-401: returns valid:true for transfer_pending domain", async () => {
     const agentId = registerStub("example.com", "transfer-agent", {
-      agent_id: "agt://example.com/transfer-agent",
-      agent_type: "public",
-      domain: "example.com",
-      domain_status: "transfer_pending",
+      identity: { agent_id: "agt://example.com/transfer-agent", agent_type: "public", domain: "example.com" },
+      verification: { domain_status: "transfer_pending" },
     });
     const result = await verify(agentId, { apiUrl: baseUrl });
     expect(result.valid).toBe(true);
@@ -111,10 +114,8 @@ describe("verify()", () => {
   // T-402: suspended → valid:false
   it("T-402: returns valid:false for suspended domain", async () => {
     const agentId = registerStub("example.com", "suspended-agent", {
-      agent_id: "agt://example.com/suspended-agent",
-      agent_type: "private",
-      domain: "example.com",
-      domain_status: "suspended",
+      identity: { agent_id: "agt://example.com/suspended-agent", agent_type: "private", domain: "example.com" },
+      verification: { domain_status: "suspended" },
     });
     const result = await verify(agentId, { apiUrl: baseUrl });
     expect(result.valid).toBe(false);
@@ -192,9 +193,9 @@ describe("verify()", () => {
 
   // JSON parse failure → body = null, then !res.ok is false so we proceed with null doc
   it("handles non-JSON response body gracefully (body = null)", async () => {
-    const agentId = registerStub("badjson.example.com", "my-agent", {
-      domain_status: "active",
-    });
+    // Content is irrelevant — the stub is deleted below and badJsonHashes
+    // makes the stub server return non-JSON for this hash regardless.
+    const agentId = registerStub("badjson.example.com", "my-agent", {});
     const hash = computeAgentHash(normalizeDomain("badjson.example.com"), "my-agent");
     stubs.delete(hash); // remove normal stub
     badJsonHashes.add(hash);
@@ -218,40 +219,41 @@ describe("verify()", () => {
   // agentType fallback to "private" when API returns unknown agent_type
   it("falls back to agentType:private for unrecognised agent_type in response", async () => {
     const agentId = registerStub("example.com", "bot-agent", {
-      agent_id: "agt://example.com/bot-agent",
-      agent_type: "bot",         // not "public" or "private"
-      domain: "example.com",
-      domain_status: "active",
+      identity: { agent_id: "agt://example.com/bot-agent", agent_type: "bot", domain: "example.com" }, // not "public" or "private"
+      verification: { domain_status: "active" },
     });
     const result = await verify(agentId, { apiUrl: baseUrl });
     expect(result.agentType).toBe("private");
   });
 
-  // anchoredAt and issuer populated from verification block
-  it("parses anchoredAt and issuer from verification block", async () => {
+  // anchoredAt (from identity.registered_at, unix seconds) and issuer
+  // (from verification.issuer_address) populated correctly
+  it("parses anchoredAt and issuer from the AGT-9303 document", async () => {
+    const registeredAtIso = "2024-01-15T10:00:00.000Z";
+    const registeredAtUnix = Math.floor(new Date(registeredAtIso).getTime() / 1_000);
     const agentId = registerStub("anchored.example.com", "my-agent", {
-      agent_id: "agt://anchored.example.com/my-agent",
-      agent_type: "public",
-      domain: "anchored.example.com",
-      domain_status: "active",
+      identity: {
+        agent_id: "agt://anchored.example.com/my-agent",
+        agent_type: "public",
+        domain: "anchored.example.com",
+        registered_at: registeredAtUnix,
+      },
       verification: {
-        anchored_at: "2024-01-15T10:00:00Z",
+        domain_status: "active",
         issuer_address: "0xabcdef1234567890abcdef1234567890abcdef12",
       },
     });
     const result = await verify(agentId, { apiUrl: baseUrl });
     expect(result.valid).toBe(true);
-    expect(result.anchoredAt).toBe("2024-01-15T10:00:00Z");
+    expect(result.anchoredAt).toBe(registeredAtIso);
     expect(result.issuer).toBe("0xabcdef1234567890abcdef1234567890abcdef12");
   });
 
   // API key is forwarded in Authorization header (no server-side check needed — just smoke test)
   it("accepts apiKey option without throwing", async () => {
     const agentId = registerStub("example.com", "keyed-agent", {
-      agent_id: "agt://example.com/keyed-agent",
-      agent_type: "public",
-      domain: "example.com",
-      domain_status: "active",
+      identity: { agent_id: "agt://example.com/keyed-agent", agent_type: "public", domain: "example.com" },
+      verification: { domain_status: "active" },
     });
     const result = await verify(agentId, { apiUrl: baseUrl, apiKey: "sk-test-key" });
     expect(result.valid).toBe(true);
@@ -303,9 +305,8 @@ describe("verify() — T-708: correlationId in result", () => {
   it("includes correlationId when API returns X-Correlation-Id header", async () => {
     const corrId = "bindagt_test-corr-abc123";
     const agentId = registerStubWithCorr("corr-test.com", "agent", {
-      agent_type: "public",
-      domain: "corr-test.com",
-      domain_status: "active",
+      identity: { agent_type: "public", domain: "corr-test.com" },
+      verification: { domain_status: "active" },
     }, corrId);
     const result = await verify(agentId, { apiUrl: baseUrl });
     expect(result.correlationId).toBe(corrId);
@@ -313,9 +314,8 @@ describe("verify() — T-708: correlationId in result", () => {
 
   it("correlationId is undefined when header is absent", async () => {
     const agentId = registerStub("no-corr.com", "agent", {
-      agent_type: "public",
-      domain: "no-corr.com",
-      domain_status: "active",
+      identity: { agent_type: "public", domain: "no-corr.com" },
+      verification: { domain_status: "active" },
     });
     const result = await verify(agentId, { apiUrl: baseUrl });
     expect(result.correlationId).toBeUndefined();
