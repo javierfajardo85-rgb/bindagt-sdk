@@ -34,3 +34,19 @@ jobs:
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Supply-chain artefacts (DX_Spec.md §5.5): SHA-256 checksums + SBOM
+      # attached to the GitHub release, matching @bindagt/openai's pipeline.
+      - name: Generate SHA-256 checksums
+        run: |
+          cd dist
+          sha256sum $(find . -type f) > ../SHA256SUMS.txt
+          cd ..
+      - name: Generate SBOM (CycloneDX)
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file bom.json
+      - name: Attach checksums + SBOM to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            SHA256SUMS.txt
+            bom.json
